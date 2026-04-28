@@ -524,6 +524,7 @@ window.roomPage = {
     };
 
     pc.onconnectionstatechange = () => {
+      console.log(`[rtc] peer ${remoteUserId} connectionState=${pc.connectionState}`);
       if (
         pc.connectionState === 'disconnected' ||
         pc.connectionState === 'failed'
@@ -533,12 +534,17 @@ window.roomPage = {
     };
 
     pc.oniceconnectionstatechange = () => {
+      console.log(`[rtc] peer ${remoteUserId} iceConnectionState=${pc.iceConnectionState}`);
       if (
         pc.iceConnectionState === 'disconnected' ||
         pc.iceConnectionState === 'failed'
       ) {
         this._closePeerConnection(remoteUserId);
       }
+    };
+
+    pc.onicegatheringstatechange = () => {
+      console.log(`[rtc] peer ${remoteUserId} iceGatheringState=${pc.iceGatheringState}`);
     };
 
     this.peers.set(remoteUserId, pc);
