@@ -1,0 +1,14 @@
+node_modules/
+.git/
+.gitignore
+.playwright-mcp/
+test-results/
+deploy/
+docs/
+voice.db
+voice.db-shm
+voice.db-wal
+*.log
+.DS_Store
+.env
+.env.*

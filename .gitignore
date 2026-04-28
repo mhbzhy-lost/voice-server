@@ -1,0 +1,10 @@
+.env
+*.pem
+node_modules/
+voice.db
+voice.db-shm
+voice.db-wal
+.playwright-mcp/
+test-results/
+*.log
+.DS_Store
