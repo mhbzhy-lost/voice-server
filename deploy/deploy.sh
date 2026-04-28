@@ -27,6 +27,9 @@ TLS_CERT_REMOTE="${TLS_DIR_REMOTE}/cert.pem"
 TLS_KEY_REMOTE="${TLS_DIR_REMOTE}/key.pem"
 TLS_CERT_DAYS="${TLS_CERT_DAYS:-397}"
 TLS_RENEW_BEFORE_DAYS="${TLS_RENEW_BEFORE_DAYS:-30}"
+REMOTE_SCRIPTS_DIR="${REMOTE_DIR}/scripts"
+REMOTE_RENEW_SCRIPT="${REMOTE_SCRIPTS_DIR}/cert-renew.sh"
+RENEW_UNIT_NAME="voice-server-cert-renew"
 
 SCRIPT_DIR="$SCRIPT_DIR_EARLY"
 PROJECT_DIR="$PROJECT_ROOT_EARLY"
@@ -112,8 +115,14 @@ sudo chmod 640 ${ENV_FILE_REMOTE}"
   fi
 
   # Step 4b: TLS cert + env wiring (idempotent)
-  cmd_gen_cert
   cmd_apply_tls_env
+  remote_env_upsert "VOICE_SAN_HOST" "${HOST}"
+  remote_env_upsert "VOICE_OWNER"    "${USER}"
+  remote_env_upsert "VOICE_GROUP"    "${USER}"
+  remote "sudo mkdir -p ${TLS_DIR_REMOTE} && sudo chown ${USER}:${USER} ${TLS_DIR_REMOTE} && sudo chmod 755 ${TLS_DIR_REMOTE}"
+  cmd_install_cert_renew_unit
+  # Trigger one renewal pass (no-op if cert is valid).
+  remote "sudo ${REMOTE_RENEW_SCRIPT}"
 
   # Step 5: systemd unit (replace __VOICE_SSH_USER__ placeholder before installing)
   sed "s/__VOICE_SSH_USER__/${USER}/g" "${SCRIPT_DIR}/voice-server.service" \
@@ -124,58 +133,48 @@ sudo chmod 640 ${ENV_FILE_REMOTE}"
 
 # ---------------------------------------------------------------------------
 # TLS: self-signed cert with IP-SAN so browsers treat the origin as Secure
-# Context (required to expose navigator.mediaDevices over a non-localhost
-# origin). Cert lives only on the remote host; private key never leaves it.
+# Context. The actual openssl logic lives in deploy/cert-renew.sh which is
+# pushed to the remote host; that single script is shared by this command
+# and by the systemd timer. Cert/key are generated locally on the remote so
+# the private key never leaves it.
 # ---------------------------------------------------------------------------
 cmd_gen_cert() {
-  c_blue "Ensuring TLS cert on remote at ${TLS_CERT_REMOTE} (SAN IP=${HOST}) ..."
+  c_blue "Forcing TLS cert renewal via remote script ..."
+  cmd_install_cert_renew_script
+  cmd_apply_tls_env
+  remote "sudo ${REMOTE_RENEW_SCRIPT} --force"
+  c_grn "Cert renewal complete."
+}
 
-  # Renew threshold in seconds (openssl x509 -checkend semantics).
-  local checkend=$(( TLS_RENEW_BEFORE_DAYS * 24 * 3600 ))
+# Push deploy/cert-renew.sh -> /opt/voice-server/scripts/cert-renew.sh and set
+# permissions. Idempotent.
+cmd_install_cert_renew_script() {
+  remote "sudo mkdir -p ${REMOTE_SCRIPTS_DIR} && sudo chown root:root ${REMOTE_SCRIPTS_DIR} && sudo chmod 755 ${REMOTE_SCRIPTS_DIR}"
+  ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" "sudo tee ${REMOTE_RENEW_SCRIPT} >/dev/null" < "${SCRIPT_DIR}/cert-renew.sh"
+  remote "sudo chown root:root ${REMOTE_RENEW_SCRIPT} && sudo chmod 755 ${REMOTE_RENEW_SCRIPT}"
+  c_grn "cert-renew.sh installed at ${REMOTE_RENEW_SCRIPT}"
+}
 
-  # Decide whether to (re)generate. We regen if file missing OR will expire
-  # within TLS_RENEW_BEFORE_DAYS OR if the existing cert lacks our IP-SAN
-  # (handles the case where HOST changed since last generation).
-  local need_gen=0
-  if ! remote "test -f ${TLS_CERT_REMOTE} && test -f ${TLS_KEY_REMOTE}"; then
-    need_gen=1
-    c_blue "No existing cert; will generate."
-  elif ! remote "openssl x509 -in ${TLS_CERT_REMOTE} -noout -checkend ${checkend} >/dev/null 2>&1"; then
-    need_gen=1
-    c_blue "Existing cert expires within ${TLS_RENEW_BEFORE_DAYS} days; will renew."
-  elif ! remote "openssl x509 -in ${TLS_CERT_REMOTE} -noout -ext subjectAltName 2>/dev/null | grep -q 'IP Address:${HOST}'"; then
-    need_gen=1
-    c_blue "Existing cert lacks IP-SAN for ${HOST}; will regenerate."
-  else
-    c_grn "Existing cert is valid and matches ${HOST}; reuse."
-  fi
+# Install/update the systemd service+timer units, enable the timer.
+cmd_install_cert_renew_unit() {
+  cmd_install_cert_renew_script
+  # Make sure VOICE_SAN_HOST is in the env file so the script can read it.
+  remote_env_upsert "VOICE_SAN_HOST" "${HOST}"
+  remote_env_upsert "VOICE_OWNER"    "${USER}"
+  remote_env_upsert "VOICE_GROUP"    "${USER}"
 
-  if [ "$need_gen" = "1" ]; then
-    remote "sudo mkdir -p ${TLS_DIR_REMOTE} && sudo chown ${USER}:${USER} ${TLS_DIR_REMOTE} && chmod 755 ${TLS_DIR_REMOTE}"
-    # Generate directly on remote so the private key never leaves the host.
-    remote "set -e
-      cd ${TLS_DIR_REMOTE}
-      umask 077
-      openssl req -x509 -newkey rsa:2048 -nodes -days ${TLS_CERT_DAYS} \
-        -keyout key.pem.new -out cert.pem.new \
-        -subj '/CN=voice-server.local' \
-        -addext 'subjectAltName=IP:${HOST},DNS:voice-server.local' >/dev/null 2>&1
-      mv -f key.pem.new key.pem
-      mv -f cert.pem.new cert.pem
-      chmod 600 key.pem
-      chmod 644 cert.pem"
-    c_grn "New cert generated."
-  fi
+  ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" "sudo tee /etc/systemd/system/${RENEW_UNIT_NAME}.service >/dev/null" < "${SCRIPT_DIR}/${RENEW_UNIT_NAME}.service"
+  ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" "sudo tee /etc/systemd/system/${RENEW_UNIT_NAME}.timer >/dev/null" < "${SCRIPT_DIR}/${RENEW_UNIT_NAME}.timer"
+  remote "sudo chown root:root /etc/systemd/system/${RENEW_UNIT_NAME}.service /etc/systemd/system/${RENEW_UNIT_NAME}.timer && sudo chmod 644 /etc/systemd/system/${RENEW_UNIT_NAME}.service /etc/systemd/system/${RENEW_UNIT_NAME}.timer"
+  remote "sudo systemctl daemon-reload && sudo systemctl enable --now ${RENEW_UNIT_NAME}.timer"
+  c_grn "${RENEW_UNIT_NAME}.timer enabled and active."
+}
 
-  # Print fingerprint so the user can verify in the browser on first visit.
-  local fp
-  fp="$(remote "openssl x509 -in ${TLS_CERT_REMOTE} -noout -fingerprint -sha256" 2>/dev/null || true)"
-  if [ -n "$fp" ]; then
-    c_grn "Cert ${fp}"
-  fi
-  local notafter
-  notafter="$(remote "openssl x509 -in ${TLS_CERT_REMOTE} -noout -enddate" 2>/dev/null || true)"
-  [ -n "$notafter" ] && c_grn "Cert ${notafter}"
+cmd_cert_status() {
+  c_blue "Cert info:"
+  remote "openssl x509 -in ${TLS_CERT_REMOTE} -noout -enddate -fingerprint -sha256 2>/dev/null || echo '(no cert at ${TLS_CERT_REMOTE})'"
+  c_blue "Renewal timer:"
+  remote "systemctl list-timers ${RENEW_UNIT_NAME} --no-pager 2>/dev/null || echo '(timer not installed)'"
 }
 
 # Idempotently ensure a single KEY=VALUE line in the remote env file. Adds
@@ -286,9 +285,11 @@ main() {
     status)    cmd_status ;;
     logs)      cmd_logs ;;
     full)      cmd_full ;;
-    gen-cert)  cmd_gen_cert; cmd_apply_tls_env ;;
+    gen-cert)  cmd_gen_cert ;;
+    cert-status) cmd_cert_status ;;
+    install-cert-renew) cmd_install_cert_renew_unit ;;
     verify)    verify_listen; verify_http_local_remote; verify_http_public ;;
-    *) echo "Usage: $0 {bootstrap|sync|restart|status|logs|verify|gen-cert|full}" >&2; exit 1 ;;
+    *) echo "Usage: $0 {bootstrap|sync|restart|status|logs|verify|gen-cert|cert-status|install-cert-renew|full}" >&2; exit 1 ;;
   esac
 }
 

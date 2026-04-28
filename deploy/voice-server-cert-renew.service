@@ -1,0 +1,9 @@
+[Unit]
+Description=Voice-server self-signed TLS cert renewal check
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/voice-server/scripts/cert-renew.sh
+StandardOutput=journal
+StandardError=journal
