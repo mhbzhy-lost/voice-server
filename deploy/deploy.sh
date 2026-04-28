@@ -106,9 +106,10 @@ sudo chmod 640 ${ENV_FILE_REMOTE}"
     echo
   fi
 
-  # Step 5: systemd unit
-  scp "${SSH_OPTS[@]}" "${SCRIPT_DIR}/voice-server.service" "${USER}@${HOST}:/tmp/voice-server.service"
-  remote "sudo mv /tmp/voice-server.service /etc/systemd/system/voice-server.service && sudo chown root:root /etc/systemd/system/voice-server.service && sudo chmod 644 /etc/systemd/system/voice-server.service && sudo systemctl daemon-reload && sudo systemctl enable voice-server.service >/dev/null"
+  # Step 5: systemd unit (replace __VOICE_SSH_USER__ placeholder before installing)
+  sed "s/__VOICE_SSH_USER__/${USER}/g" "${SCRIPT_DIR}/voice-server.service" \
+    | ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" "sudo tee /etc/systemd/system/voice-server.service >/dev/null"
+  remote "sudo chown root:root /etc/systemd/system/voice-server.service && sudo chmod 644 /etc/systemd/system/voice-server.service && sudo systemctl daemon-reload && sudo systemctl enable voice-server.service >/dev/null"
   c_grn "systemd unit installed and enabled."
 }
 
