@@ -150,14 +150,11 @@ function disconnectWS() {
 }
 
 // ---------------------------------------------------------------------------
-// STUN server config for WebRTC
-// 自部署 STUN 优先（与本站同源，需阿里云安全组放行 UDP/3478），
-// 失败时回退到公共 STUN 防止 ICE 全军覆没。
+// STUN server config for WebRTC（仅自部署，无外部依赖）
+// 需阿里云安全组放行 UDP/3478。
 // ---------------------------------------------------------------------------
 const rtcConfig = {
   iceServers: [
     { urls: `stun:${window.location.hostname}:3478` },
-    { urls: 'stun:stun.miwifi.com:3478' },
-    { urls: 'stun:stun.qq.com:3478' },
   ],
 };

@@ -8,6 +8,10 @@ window.roomPage = {
   selfUserId: null,
   peers: new Map(), // remoteUserId → RTCPeerConnection
   localStream: null,
+  processedStream: null, // post-gain stream sent to peers
+  inputGainNode: null,
+  _mediaSourceNode: null,
+  _mediaDestNode: null,
   remoteAudioElements: new Map(), // remoteUserId → HTMLAudioElement
   audioContext: null, // for level meter
   audioLevelRaf: null,
@@ -69,6 +73,18 @@ window.roomPage = {
               <label>音量</label>
               <div class="level-bar-container">
                 <div id="level-bar" class="level-bar"></div>
+              </div>
+            </div>
+            <div class="volume-controls">
+              <label>输入音量</label>
+              <div class="vc-row">
+                <input type="range" id="input-volume" min="0" max="200" value="100">
+                <span id="input-volume-value" class="vc-value">100%</span>
+              </div>
+              <label>输出音量</label>
+              <div class="vc-row">
+                <input type="range" id="output-volume" min="0" max="100" value="100">
+                <span id="output-volume-value" class="vc-value">100%</span>
               </div>
             </div>
             <div class="audio-processing">
@@ -166,6 +182,32 @@ window.roomPage = {
     if (apGain) apGain.addEventListener('change', (e) =>
       this._setAudioProcessingPref('gain', e.target.checked));
 
+    // Volume controls — sync UI with persisted values then bind input
+    const inputVol = this._getInputVolume();
+    const outputVol = this._getOutputVolume();
+    const inputVolEl = document.getElementById('input-volume');
+    const inputVolValEl = document.getElementById('input-volume-value');
+    const outputVolEl = document.getElementById('output-volume');
+    const outputVolValEl = document.getElementById('output-volume-value');
+    if (inputVolEl) {
+      inputVolEl.value = String(Math.round(inputVol * 100));
+      if (inputVolValEl) inputVolValEl.textContent = `${Math.round(inputVol * 100)}%`;
+      inputVolEl.addEventListener('input', (e) => {
+        const v = Number(e.target.value) / 100;
+        this._setInputVolume(v);
+        if (inputVolValEl) inputVolValEl.textContent = `${e.target.value}%`;
+      });
+    }
+    if (outputVolEl) {
+      outputVolEl.value = String(Math.round(outputVol * 100));
+      if (outputVolValEl) outputVolValEl.textContent = `${Math.round(outputVol * 100)}%`;
+      outputVolEl.addEventListener('input', (e) => {
+        const v = Number(e.target.value) / 100;
+        this._setOutputVolume(v);
+        if (outputVolValEl) outputVolValEl.textContent = `${e.target.value}%`;
+      });
+    }
+
     // Show delete button if user is owner or admin
     const isAdmin = app.state.user.role === 'admin' || app.state.user.role === 'superadmin';
     if (
@@ -221,6 +263,22 @@ window.roomPage = {
       this.localStream.getTracks().forEach((t) => t.stop());
       this.localStream = null;
     }
+    if (this.processedStream) {
+      this.processedStream.getTracks().forEach((t) => t.stop());
+      this.processedStream = null;
+    }
+    if (this._mediaSourceNode) {
+      try { this._mediaSourceNode.disconnect(); } catch {}
+      this._mediaSourceNode = null;
+    }
+    if (this.inputGainNode) {
+      try { this.inputGainNode.disconnect(); } catch {}
+      this.inputGainNode = null;
+    }
+    if (this._mediaDestNode) {
+      try { this._mediaDestNode.disconnect(); } catch {}
+      this._mediaDestNode = null;
+    }
 
     // Close audio context
     if (this.audioContext) {
@@ -261,6 +319,23 @@ window.roomPage = {
     if (this.localStream) {
       this.localStream.getTracks().forEach((t) => t.stop());
     }
+    if (this.processedStream) {
+      this.processedStream.getTracks().forEach((t) => t.stop());
+      this.processedStream = null;
+    }
+    // Disconnect previous graph nodes (keep AudioContext alive for reuse)
+    if (this._mediaSourceNode) {
+      try { this._mediaSourceNode.disconnect(); } catch {}
+      this._mediaSourceNode = null;
+    }
+    if (this.inputGainNode) {
+      try { this.inputGainNode.disconnect(); } catch {}
+      this.inputGainNode = null;
+    }
+    if (this._mediaDestNode) {
+      try { this._mediaDestNode.disconnect(); } catch {}
+      this._mediaDestNode = null;
+    }
 
     const audioPref = this._getAudioProcessingPrefs();
     const audioBase = {
@@ -276,7 +351,36 @@ window.roomPage = {
     };
 
     this.localStream = await navigator.mediaDevices.getUserMedia(constraints);
-    this._startAudioLevelMonitor();
+    this._buildAudioGraph();
+  },
+
+  _buildAudioGraph() {
+    if (!this.localStream) return;
+
+    if (!this.audioContext || this.audioContext.state === 'closed') {
+      this.audioContext = new AudioContext();
+    }
+
+    const ctx = this.audioContext;
+    const source = ctx.createMediaStreamSource(this.localStream);
+    const gain = ctx.createGain();
+    gain.gain.value = this._getInputVolume();
+    const dest = ctx.createMediaStreamDestination();
+
+    source.connect(gain);
+    gain.connect(dest);
+
+    this._mediaSourceNode = source;
+    this.inputGainNode = gain;
+    this._mediaDestNode = dest;
+    this.processedStream = dest.stream;
+
+    // Mirror current mute state onto outgoing track; raw track stays enabled
+    // so the level meter keeps animating.
+    const outTrack = this.processedStream.getAudioTracks()[0];
+    if (outTrack) outTrack.enabled = !this._muted;
+
+    this._startAudioLevelMonitor(source);
   },
 
   _getAudioProcessingPrefs() {
@@ -317,10 +421,10 @@ window.roomPage = {
 
     // Replace the audio track in every established peer connection so
     // remote peers receive the new processing parameters.
-    const audioTrack = this.localStream && this.localStream.getAudioTracks()[0];
+    const audioTrack = this.processedStream && this.processedStream.getAudioTracks()[0];
     if (!audioTrack) return;
 
-    // Preserve current mute state
+    // Preserve current mute state on outgoing track
     audioTrack.enabled = !this._muted;
 
     this.peers.forEach((pc) => {
@@ -331,13 +435,81 @@ window.roomPage = {
     });
   },
 
-  _startAudioLevelMonitor() {
-    if (this.audioContext) this.audioContext.close();
+  // ---- volume helpers ---------------------------------------------------
+  _clamp(v, lo, hi) {
+    v = Number(v);
+    if (!Number.isFinite(v)) return lo;
+    return Math.max(lo, Math.min(hi, v));
+  },
+
+  _getInputVolume() {
+    const raw = localStorage.getItem('voice_input_volume');
+    if (raw == null) return 1;
+    const n = Number(raw);
+    return Number.isFinite(n) ? this._clamp(n, 0, 2) : 1;
+  },
+
+  _setInputVolume(value) {
+    const v = this._clamp(value, 0, 2);
+    if (this.inputGainNode) {
+      this.inputGainNode.gain.value = v;
+    }
+    try { localStorage.setItem('voice_input_volume', String(v)); } catch {}
+  },
+
+  _getOutputVolume() {
+    const raw = localStorage.getItem('voice_output_volume');
+    if (raw == null) return 1;
+    const n = Number(raw);
+    return Number.isFinite(n) ? this._clamp(n, 0, 1) : 1;
+  },
+
+  _setOutputVolume(value) {
+    const v = this._clamp(value, 0, 1);
+    try { localStorage.setItem('voice_output_volume', String(v)); } catch {}
+    this.remoteAudioElements.forEach((el, uid) => {
+      const per = this._getPeerVolume(uid);
+      el.volume = this._clamp(v * per, 0, 1);
+    });
+  },
+
+  _readPeerVolumes() {
+    try {
+      const raw = localStorage.getItem('voice_peer_volumes');
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return (parsed && typeof parsed === 'object') ? parsed : {};
+    } catch { return {}; }
+  },
+
+  _getPeerVolume(userId) {
+    const map = this._readPeerVolumes();
+    const v = map[String(userId)];
+    if (v == null) return 1;
+    const n = Number(v);
+    return Number.isFinite(n) ? this._clamp(n, 0, 1) : 1;
+  },
+
+  _setPeerVolume(userId, value) {
+    const v = this._clamp(value, 0, 1);
+    const map = this._readPeerVolumes();
+    map[String(userId)] = v;
+    try { localStorage.setItem('voice_peer_volumes', JSON.stringify(map)); } catch {}
+    const el = this.remoteAudioElements.get(Number(userId)) || this.remoteAudioElements.get(userId);
+    if (el) {
+      const master = this._getOutputVolume();
+      el.volume = this._clamp(master * v, 0, 1);
+    }
+  },
+
+  _startAudioLevelMonitor(sourceNode) {
     if (this.audioLevelRaf) cancelAnimationFrame(this.audioLevelRaf);
 
     try {
-      this.audioContext = new AudioContext();
-      const source = this.audioContext.createMediaStreamSource(this.localStream);
+      if (!this.audioContext || this.audioContext.state === 'closed') {
+        this.audioContext = new AudioContext();
+      }
+      const source = sourceNode || this.audioContext.createMediaStreamSource(this.localStream);
       const analyser = this.audioContext.createAnalyser();
       analyser.fftSize = 256;
       source.connect(analyser);
@@ -430,8 +602,9 @@ window.roomPage = {
     }
 
     // Replace audio track in every established peer connection
-    const audioTrack = this.localStream.getAudioTracks()[0];
+    const audioTrack = this.processedStream && this.processedStream.getAudioTracks()[0];
     if (!audioTrack) return;
+    audioTrack.enabled = !this._muted;
 
     this.peers.forEach((pc) => {
       const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'audio');
@@ -488,9 +661,9 @@ window.roomPage = {
 
     const pc = new RTCPeerConnection(rtcConfig);
 
-    if (this.localStream) {
-      this.localStream.getTracks().forEach((track) => {
-        pc.addTrack(track, this.localStream);
+    if (this.processedStream) {
+      this.processedStream.getTracks().forEach((track) => {
+        pc.addTrack(track, this.processedStream);
       });
     }
 
@@ -511,6 +684,10 @@ window.roomPage = {
         }
       }
       audioEl.srcObject = event.streams[0];
+      // Apply master * per-peer volume
+      const master = this._getOutputVolume();
+      const per = this._getPeerVolume(remoteUserId);
+      audioEl.volume = Math.max(0, Math.min(1, master * per));
     };
 
     pc.onicecandidate = (event) => {
@@ -763,10 +940,36 @@ window.roomPage = {
   _participantHtml(u) {
     const isSelf = u.id === this.selfUserId;
     const name = this._displayName(u);
+    let volSlider = '';
+    if (!isSelf) {
+      const pv = Math.round(this._getPeerVolume(u.id) * 100);
+      volSlider = `<input type="range" class="peer-volume" min="0" max="100" value="${pv}" data-user-id="${u.id}" title="单独调整对方音量">
+        <span class="peer-volume-value">${pv}%</span>`;
+    }
     return `<li class="participant-item${isSelf ? ' self' : ''}" data-user-id="${u.id}">
         <span class="participant-name">${escapeHtml(name)}${isSelf ? '（你）' : ''}</span>
+        ${volSlider}
         <span class="mute-icon">${u.muted ? '\u{1F507}' : '\u{1F3A4}'}</span>
       </li>`;
+  },
+
+  _bindPeerVolumeSliders() {
+    const list = document.getElementById('participant-list');
+    if (!list) return;
+    list.querySelectorAll('input.peer-volume').forEach((el) => {
+      if (el.dataset.pvBound === '1') return;
+      el.dataset.pvBound = '1';
+      el.addEventListener('input', (e) => {
+        const uid = Number(e.target.dataset.userId);
+        const pct = Number(e.target.value);
+        this._setPeerVolume(uid, pct / 100);
+        const li = e.target.closest('.participant-item');
+        const valEl = li && li.querySelector('.peer-volume-value');
+        if (valEl) valEl.textContent = `${pct}%`;
+      });
+      // prevent right-click on slider from triggering kick context menu
+      el.addEventListener('contextmenu', (e) => e.stopPropagation());
+    });
   },
 
   _updateParticipantList(users) {
@@ -775,6 +978,7 @@ window.roomPage = {
 
     list.innerHTML = users.map((u) => this._participantHtml(u)).join('');
     this._bindParticipantContextMenu();
+    this._bindPeerVolumeSliders();
   },
 
   _addParticipant(userOrId, mutedOrUsername, mutedMaybe) {
@@ -804,6 +1008,7 @@ window.roomPage = {
     const li = wrapper.firstChild;
     list.appendChild(li);
     this._bindParticipantContextMenu();
+    this._bindPeerVolumeSliders();
   },
 
   _removeParticipant(userId) {
@@ -814,10 +1019,13 @@ window.roomPage = {
   },
 
   _toggleMute() {
-    if (!this.localStream) return;
-    const track = this.localStream.getAudioTracks()[0];
+    if (!this.processedStream) return;
+    const track = this.processedStream.getAudioTracks()[0];
     if (!track) return;
 
+    // Toggle the outgoing (post-gain) track. Raw localStream track stays
+    // enabled so the level meter keeps animating, signalling to the user
+    // that the mic is alive but not transmitting.
     track.enabled = !track.enabled;
     this._muted = !track.enabled;
 
@@ -893,14 +1101,15 @@ window.roomPage = {
         banner.innerHTML = '';
 
         // Replace tracks in existing peer connections
-        const audioTrack = this.localStream && this.localStream.getAudioTracks()[0];
+        const audioTrack = this.processedStream && this.processedStream.getAudioTracks()[0];
         if (audioTrack) {
+          audioTrack.enabled = !this._muted;
           this.peers.forEach((pc) => {
             const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'audio');
             if (sender) {
               sender.replaceTrack(audioTrack).catch(() => {});
             } else {
-              pc.addTrack(audioTrack, this.localStream);
+              pc.addTrack(audioTrack, this.processedStream);
             }
           });
         }
@@ -934,6 +1143,7 @@ window.roomPage = {
       if (el.dataset.cmBound === '1') return;
       el.dataset.cmBound = '1';
       el.addEventListener('contextmenu', (e) => {
+        if (e.target && e.target.tagName === 'INPUT' && e.target.type === 'range') return;
         const uid = Number(el.dataset.userId);
         if (!uid || uid === this.selfUserId) return;
         if (app.state.user.role !== 'superadmin') return;
