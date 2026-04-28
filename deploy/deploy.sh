@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # voice-server SSH deploy automation
-# Subcommands: bootstrap | sync | restart | status | logs | full
+# Subcommands: bootstrap | sync | restart | status | logs | verify | gen-cert | full
 set -euo pipefail
 
 # ===== Load .env =====
@@ -22,6 +22,11 @@ PORT="${PORT:-3000}"
 NODE_MAJOR="${NODE_MAJOR:-20}"
 ENV_FILE_REMOTE="/etc/voice-server.env"
 SERVICE_NAME="voice-server"
+TLS_DIR_REMOTE="${REMOTE_DIR}/tls"
+TLS_CERT_REMOTE="${TLS_DIR_REMOTE}/cert.pem"
+TLS_KEY_REMOTE="${TLS_DIR_REMOTE}/key.pem"
+TLS_CERT_DAYS="${TLS_CERT_DAYS:-397}"
+TLS_RENEW_BEFORE_DAYS="${TLS_RENEW_BEFORE_DAYS:-30}"
 
 SCRIPT_DIR="$SCRIPT_DIR_EARLY"
 PROJECT_DIR="$PROJECT_ROOT_EARLY"
@@ -106,11 +111,95 @@ sudo chmod 640 ${ENV_FILE_REMOTE}"
     echo
   fi
 
+  # Step 4b: TLS cert + env wiring (idempotent)
+  cmd_gen_cert
+  cmd_apply_tls_env
+
   # Step 5: systemd unit (replace __VOICE_SSH_USER__ placeholder before installing)
   sed "s/__VOICE_SSH_USER__/${USER}/g" "${SCRIPT_DIR}/voice-server.service" \
     | ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" "sudo tee /etc/systemd/system/voice-server.service >/dev/null"
   remote "sudo chown root:root /etc/systemd/system/voice-server.service && sudo chmod 644 /etc/systemd/system/voice-server.service && sudo systemctl daemon-reload && sudo systemctl enable voice-server.service >/dev/null"
   c_grn "systemd unit installed and enabled."
+}
+
+# ---------------------------------------------------------------------------
+# TLS: self-signed cert with IP-SAN so browsers treat the origin as Secure
+# Context (required to expose navigator.mediaDevices over a non-localhost
+# origin). Cert lives only on the remote host; private key never leaves it.
+# ---------------------------------------------------------------------------
+cmd_gen_cert() {
+  c_blue "Ensuring TLS cert on remote at ${TLS_CERT_REMOTE} (SAN IP=${HOST}) ..."
+
+  # Renew threshold in seconds (openssl x509 -checkend semantics).
+  local checkend=$(( TLS_RENEW_BEFORE_DAYS * 24 * 3600 ))
+
+  # Decide whether to (re)generate. We regen if file missing OR will expire
+  # within TLS_RENEW_BEFORE_DAYS OR if the existing cert lacks our IP-SAN
+  # (handles the case where HOST changed since last generation).
+  local need_gen=0
+  if ! remote "test -f ${TLS_CERT_REMOTE} && test -f ${TLS_KEY_REMOTE}"; then
+    need_gen=1
+    c_blue "No existing cert; will generate."
+  elif ! remote "openssl x509 -in ${TLS_CERT_REMOTE} -noout -checkend ${checkend} >/dev/null 2>&1"; then
+    need_gen=1
+    c_blue "Existing cert expires within ${TLS_RENEW_BEFORE_DAYS} days; will renew."
+  elif ! remote "openssl x509 -in ${TLS_CERT_REMOTE} -noout -ext subjectAltName 2>/dev/null | grep -q 'IP Address:${HOST}'"; then
+    need_gen=1
+    c_blue "Existing cert lacks IP-SAN for ${HOST}; will regenerate."
+  else
+    c_grn "Existing cert is valid and matches ${HOST}; reuse."
+  fi
+
+  if [ "$need_gen" = "1" ]; then
+    remote "sudo mkdir -p ${TLS_DIR_REMOTE} && sudo chown ${USER}:${USER} ${TLS_DIR_REMOTE} && chmod 755 ${TLS_DIR_REMOTE}"
+    # Generate directly on remote so the private key never leaves the host.
+    remote "set -e
+      cd ${TLS_DIR_REMOTE}
+      umask 077
+      openssl req -x509 -newkey rsa:2048 -nodes -days ${TLS_CERT_DAYS} \
+        -keyout key.pem.new -out cert.pem.new \
+        -subj '/CN=voice-server.local' \
+        -addext 'subjectAltName=IP:${HOST},DNS:voice-server.local' >/dev/null 2>&1
+      mv -f key.pem.new key.pem
+      mv -f cert.pem.new cert.pem
+      chmod 600 key.pem
+      chmod 644 cert.pem"
+    c_grn "New cert generated."
+  fi
+
+  # Print fingerprint so the user can verify in the browser on first visit.
+  local fp
+  fp="$(remote "openssl x509 -in ${TLS_CERT_REMOTE} -noout -fingerprint -sha256" 2>/dev/null || true)"
+  if [ -n "$fp" ]; then
+    c_grn "Cert ${fp}"
+  fi
+  local notafter
+  notafter="$(remote "openssl x509 -in ${TLS_CERT_REMOTE} -noout -enddate" 2>/dev/null || true)"
+  [ -n "$notafter" ] && c_grn "Cert ${notafter}"
+}
+
+# Idempotently ensure a single KEY=VALUE line in the remote env file. Adds
+# the line if absent, updates in place if present. Preserves all other
+# entries (notably SUPERADMIN_PASSWORD).
+remote_env_upsert() {
+  local k="$1" v="$2"
+  remote "sudo bash -c '
+    set -e
+    f=${ENV_FILE_REMOTE}
+    test -f \$f || { echo \"missing \$f\" >&2; exit 1; }
+    if grep -q \"^${k}=\" \"\$f\"; then
+      sed -i \"s|^${k}=.*|${k}=${v}|\" \"\$f\"
+    else
+      printf \"%s=%s\n\" \"${k}\" \"${v}\" >> \"\$f\"
+    fi
+  '"
+}
+
+cmd_apply_tls_env() {
+  c_blue "Writing TLS_CERT_PATH / TLS_KEY_PATH into ${ENV_FILE_REMOTE} ..."
+  remote_env_upsert "TLS_CERT_PATH" "${TLS_CERT_REMOTE}"
+  remote_env_upsert "TLS_KEY_PATH"  "${TLS_KEY_REMOTE}"
+  c_grn "Env updated."
 }
 
 cmd_sync() {
@@ -154,20 +243,24 @@ verify_listen() {
 }
 
 verify_http_local_remote() {
-  c_blue "Curling http://127.0.0.1:${PORT}/ on remote ..."
+  c_blue "Curling https://127.0.0.1:${PORT}/ on remote (TLS, -k) ..."
+  if remote "curl -k -sS -o /dev/null -w 'HTTPS %{http_code} (size=%{size_download})\n' https://127.0.0.1:${PORT}/"; then
+    return 0
+  fi
+  c_red "HTTPS local probe failed; falling back to plain HTTP probe."
   remote "curl -sS -o /dev/null -w 'HTTP %{http_code} (size=%{size_download})\n' http://127.0.0.1:${PORT}/" || return 1
 }
 
 verify_http_public() {
-  c_blue "Curling http://${HOST}:${PORT}/ from local ..."
+  c_blue "Curling https://${HOST}:${PORT}/ from local (TLS, -k) ..."
   local out
-  if out="$(curl --noproxy '*' -sS --max-time 8 -o /dev/null -w 'HTTP %{http_code}' "http://${HOST}:${PORT}/" 2>&1)" && [[ "$out" == *"200"* ]]; then
-    c_grn "Public reachable: ${out}"
+  if out="$(curl -k --noproxy '*' -sS --max-time 8 -o /dev/null -w 'HTTPS %{http_code}' "https://${HOST}:${PORT}/" 2>&1)" && [[ "$out" == *"200"* ]]; then
+    c_grn "Public HTTPS reachable: ${out}"
     return 0
   else
-    c_red "Public NOT reachable: ${out}"
-    c_red "Likely cause: Aliyun ECS Security Group does not allow inbound TCP/${PORT}."
-    c_red "Action: Open Aliyun Console → ECS → Security Groups → add inbound rule for TCP/${PORT} (0.0.0.0/0 or your IP)."
+    c_red "Public HTTPS NOT reachable: ${out}"
+    c_red "If TLS is intentionally off, fall back: curl http://${HOST}:${PORT}/"
+    c_red "Otherwise check Aliyun ECS Security Group inbound TCP/${PORT}."
     return 1
   fi
 }
@@ -193,8 +286,9 @@ main() {
     status)    cmd_status ;;
     logs)      cmd_logs ;;
     full)      cmd_full ;;
+    gen-cert)  cmd_gen_cert; cmd_apply_tls_env ;;
     verify)    verify_listen; verify_http_local_remote; verify_http_public ;;
-    *) echo "Usage: $0 {bootstrap|sync|restart|status|logs|verify|full}" >&2; exit 1 ;;
+    *) echo "Usage: $0 {bootstrap|sync|restart|status|logs|verify|gen-cert|full}" >&2; exit 1 ;;
   esac
 }
 
