@@ -2,11 +2,29 @@ const { tokens } = require('../auth');
 const { db } = require('../db');
 
 // Connection tracking
-const connections = new Map(); // userId -> { ws, username, role, nickname, roomId, muted }
+// NOTE: We intentionally do NOT cache `nickname` on the connection record.
+// The single source of truth is the `tokens` Map (kept in sync by
+// PATCH /api/users/me). Caching here led to stale nicknames after rename.
+const connections = new Map(); // userId -> { ws, username, role, roomId, muted }
 const rooms = new Map();       // roomId -> Set of userIds
 
-// For assigning WS-level IDs (we track users by their DB userId)
-// connections map keys are the actual DB userId (Number)
+// Resolve the current nickname for a userId by scanning live token sessions.
+// Falls back to the DB row, then to the username. tokens is in-memory and
+// small, so this O(n) scan is fine for our broadcast frequency.
+function getNickname(userId, fallbackUsername) {
+  for (const [, session] of tokens) {
+    if (session.userId === userId && session.nickname) {
+      return session.nickname;
+    }
+  }
+  try {
+    const row = db.prepare('SELECT nickname FROM users WHERE id = ?').get(userId);
+    if (row && row.nickname) return row.nickname;
+  } catch (e) {
+    // ignore
+  }
+  return fallbackUsername || '';
+}
 
 function initSignaling(wss) {
   wss.on('connection', (ws, req) => {
@@ -28,18 +46,9 @@ function initSignaling(wss) {
     const userId = session.userId;
     const username = session.username;
     const role = session.role;
-    let nickname = session.nickname;
-    if (!nickname) {
-      try {
-        const row = db.prepare('SELECT nickname FROM users WHERE id = ?').get(userId);
-        nickname = (row && row.nickname) || username;
-      } catch (e) {
-        nickname = username;
-      }
-    }
 
-    // Store connection
-    connections.set(userId, { ws, username, role, nickname, roomId: null, muted: false });
+    // Store connection (no nickname cache — resolved live via getNickname)
+    connections.set(userId, { ws, username, role, roomId: null, muted: false });
     ws.userId = userId;
     ws.username = username;
     ws.role = role;
@@ -84,7 +93,8 @@ function handleMessage(ws, userId, username, message) {
         type: 'offer',
         sdp: message.sdp,
         fromUserId: userId,
-        fromUsername: username
+        fromUsername: username,
+        fromNickname: getNickname(userId, username)
       });
       break;
 
@@ -92,7 +102,9 @@ function handleMessage(ws, userId, username, message) {
       relayToUser(userId, username, message.targetUserId, {
         type: 'answer',
         sdp: message.sdp,
-        fromUserId: userId
+        fromUserId: userId,
+        fromUsername: username,
+        fromNickname: getNickname(userId, username)
       });
       break;
 
@@ -135,23 +147,17 @@ function handleJoinRoom(ws, userId, username, roomId) {
 
   console.log(`${username} joined room ${roomIdNum}`);
 
-  // Get current users in room (excluding the joiner)
-  const currentUsers = [];
-  for (const uid of rooms.get(roomIdNum)) {
-    if (uid !== userId) {
-      const c = connections.get(uid);
-      if (c) {
-        currentUsers.push({ id: uid, username: c.username, nickname: c.nickname, muted: c.muted });
-      }
-    }
-  }
-
   // Send room state to the joiner
   const allUsers = [];
   for (const uid of rooms.get(roomIdNum)) {
     const c = connections.get(uid);
     if (c) {
-      allUsers.push({ id: uid, username: c.username, nickname: c.nickname, muted: c.muted });
+      allUsers.push({
+        id: uid,
+        username: c.username,
+        nickname: getNickname(uid, c.username),
+        muted: c.muted
+      });
     }
   }
 
@@ -168,7 +174,11 @@ function handleJoinRoom(ws, userId, username, roomId) {
       if (c && c.ws.readyState === 1) {
         safeSend(c.ws, {
           type: 'user-joined',
-          user: { id: userId, username, nickname: (connections.get(userId) && connections.get(userId).nickname) || username }
+          user: {
+            id: userId,
+            username,
+            nickname: getNickname(userId, username)
+          }
         });
       }
     }
@@ -305,4 +315,34 @@ function kickUserFromRoom(roomId, targetUserId) {
   return true;
 }
 
-module.exports = { initSignaling, connections, rooms, kickUserFromRoom };
+// Notify all peers in the user's current room that this user's nickname
+// changed. Called from routes/users.js after PATCH /api/users/me.
+// No-op if the user is not connected or not in a room.
+function broadcastNicknameChanged(userId, nickname) {
+  const uid = Number(userId);
+  const conn = connections.get(uid);
+  if (!conn || !conn.roomId) return;
+
+  const roomId = conn.roomId;
+  if (!rooms.has(roomId)) return;
+
+  for (const otherUid of rooms.get(roomId)) {
+    if (otherUid === uid) continue;
+    const c = connections.get(otherUid);
+    if (c && c.ws.readyState === 1) {
+      safeSend(c.ws, {
+        type: 'user-renamed',
+        userId: uid,
+        nickname
+      });
+    }
+  }
+}
+
+module.exports = {
+  initSignaling,
+  connections,
+  rooms,
+  kickUserFromRoom,
+  broadcastNicknameChanged
+};

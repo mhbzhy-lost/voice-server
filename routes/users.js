@@ -36,6 +36,15 @@ router.patch('/me', requireAuth, (req, res) => {
       }
     }
 
+    // Notify peers in the user's current room (if any). Lazy-required to
+    // avoid any potential circular import between routes ↔ ws/signaling.
+    try {
+      const { broadcastNicknameChanged } = require('../ws/signaling');
+      broadcastNicknameChanged(userId, user.nickname);
+    } catch (e) {
+      console.error('broadcastNicknameChanged failed:', e.message);
+    }
+
     res.json({ user });
   } catch (err) {
     console.error('Update nickname error:', err);

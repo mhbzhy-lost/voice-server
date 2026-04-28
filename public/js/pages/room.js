@@ -71,6 +71,20 @@ window.roomPage = {
                 <div id="level-bar" class="level-bar"></div>
               </div>
             </div>
+            <div class="audio-processing">
+              <label>音频处理</label>
+              <div class="ap-toggles">
+                <label class="ap-toggle">
+                  <input type="checkbox" id="ap-echo" checked> 回声消除
+                </label>
+                <label class="ap-toggle">
+                  <input type="checkbox" id="ap-noise" checked> 降噪
+                </label>
+                <label class="ap-toggle">
+                  <input type="checkbox" id="ap-gain" checked> 自动增益
+                </label>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -90,6 +104,7 @@ window.roomPage = {
     this._wsUnsubs.push(onWS('answer', (m) => this._onAnswer(m)));
     this._wsUnsubs.push(onWS('ice-candidate', (m) => this._onIceCandidate(m)));
     this._wsUnsubs.push(onWS('user-muted', (m) => this._onUserMuted(m)));
+    this._wsUnsubs.push(onWS('user-renamed', (m) => this._onUserRenamed(m)));
     this._wsUnsubs.push(onWS('room-deleted', (m) => this._onRoomDeleted(m)));
     this._wsUnsubs.push(onWS('kicked', (m) => this._onKicked(m)));
     this._wsUnsubs.push(onWS('error', (m) => this._onError(m)));
@@ -135,6 +150,21 @@ window.roomPage = {
     document
       .getElementById('select-output')
       .addEventListener('change', (e) => this._switchOutputDevice(e.target.value));
+
+    // Audio processing toggles — sync UI to stored prefs, then bind change
+    const apPrefs = this._getAudioProcessingPrefs();
+    const apEcho = document.getElementById('ap-echo');
+    const apNoise = document.getElementById('ap-noise');
+    const apGain = document.getElementById('ap-gain');
+    if (apEcho) apEcho.checked = apPrefs.echo;
+    if (apNoise) apNoise.checked = apPrefs.noise;
+    if (apGain) apGain.checked = apPrefs.gain;
+    if (apEcho) apEcho.addEventListener('change', (e) =>
+      this._setAudioProcessingPref('echo', e.target.checked));
+    if (apNoise) apNoise.addEventListener('change', (e) =>
+      this._setAudioProcessingPref('noise', e.target.checked));
+    if (apGain) apGain.addEventListener('change', (e) =>
+      this._setAudioProcessingPref('gain', e.target.checked));
 
     // Show delete button if user is owner or admin
     const isAdmin = app.state.user.role === 'admin' || app.state.user.role === 'superadmin';
@@ -232,13 +262,73 @@ window.roomPage = {
       this.localStream.getTracks().forEach((t) => t.stop());
     }
 
+    const audioPref = this._getAudioProcessingPrefs();
+    const audioBase = {
+      echoCancellation: audioPref.echo,
+      noiseSuppression: audioPref.noise,
+      autoGainControl: audioPref.gain,
+    };
     const constraints = {
-      audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+      audio: deviceId
+        ? { deviceId: { exact: deviceId }, ...audioBase }
+        : audioBase,
       video: false,
     };
 
     this.localStream = await navigator.mediaDevices.getUserMedia(constraints);
     this._startAudioLevelMonitor();
+  },
+
+  _getAudioProcessingPrefs() {
+    const defaults = { echo: true, noise: true, gain: true };
+    try {
+      const raw = localStorage.getItem('voice_audio_prefs');
+      if (!raw) return defaults;
+      const parsed = JSON.parse(raw);
+      return {
+        echo: parsed.echo !== false,
+        noise: parsed.noise !== false,
+        gain: parsed.gain !== false,
+      };
+    } catch {
+      return defaults;
+    }
+  },
+
+  async _setAudioProcessingPref(key, value) {
+    const prefs = this._getAudioProcessingPrefs();
+    prefs[key] = !!value;
+    try {
+      localStorage.setItem('voice_audio_prefs', JSON.stringify(prefs));
+    } catch {
+      // ignore storage errors
+    }
+
+    // Re-acquire media with new constraints, using current selected input
+    const inputSel = document.getElementById('select-input');
+    const currentDeviceId = (inputSel && inputSel.value) || '';
+
+    try {
+      await this._initMedia(currentDeviceId || undefined);
+    } catch (e) {
+      this._showMediaError(e);
+      return;
+    }
+
+    // Replace the audio track in every established peer connection so
+    // remote peers receive the new processing parameters.
+    const audioTrack = this.localStream && this.localStream.getAudioTracks()[0];
+    if (!audioTrack) return;
+
+    // Preserve current mute state
+    audioTrack.enabled = !this._muted;
+
+    this.peers.forEach((pc) => {
+      const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'audio');
+      if (sender) {
+        sender.replaceTrack(audioTrack).catch(() => {});
+      }
+    });
   },
 
   _startAudioLevelMonitor() {
@@ -617,6 +707,25 @@ window.roomPage = {
     if (el) {
       const icon = el.querySelector('.mute-icon');
       if (icon) icon.textContent = muted ? '\u{1F507}' : '\u{1F3A4}';
+    }
+  },
+
+  _onUserRenamed(msg) {
+    const { userId, nickname } = msg;
+    if (this._participants.has(userId)) {
+      const p = this._participants.get(userId);
+      p.nickname = nickname;
+    }
+    const el = document.querySelector(
+      `.participant-item[data-user-id="${userId}"]`
+    );
+    if (el) {
+      const nameSpan = el.querySelector('.participant-name');
+      if (nameSpan) {
+        const isSelf = userId === this.selfUserId;
+        const display = this._displayName(this._participants.get(userId)) || '';
+        nameSpan.textContent = display + (isSelf ? '（你）' : '');
+      }
     }
   },
 
