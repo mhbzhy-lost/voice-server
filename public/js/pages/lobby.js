@@ -40,6 +40,7 @@ window.lobbyPage = {
             <span>当前登录：<strong>${escapeHtml(displayName)}</strong> (${escapeHtml(roleLabel(app.state.user.role))})</span>
             <button id="btn-profile" class="btn-secondary btn-sm" style="margin:0 4px">个人设置</button>
             ${isSuperAdmin ? '<button id="btn-manage-users" class="btn-secondary btn-sm" style="margin:0 4px">用户管理</button>' : ''}
+            ${isSuperAdmin ? '<button id="btn-manage-invites" class="btn-secondary btn-sm" style="margin:0 4px">邀请管理</button>' : ''}
             <button id="btn-logout" class="btn-secondary btn-sm">退出登录</button>
           </div>
         </header>
@@ -138,6 +139,9 @@ window.lobbyPage = {
     if (isSuperAdmin) {
       document.getElementById('btn-manage-users').addEventListener('click', () => {
         this._openUserManage();
+      });
+      document.getElementById('btn-manage-invites').addEventListener('click', () => {
+        window.location.hash = '#/invites';
       });
     }
 

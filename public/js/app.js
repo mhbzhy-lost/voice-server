@@ -45,8 +45,8 @@ window.app = {
     const path = parts[0] || 'login';
     const param = parts[1];
 
-    // Redirect to login if not authenticated
-    if (!this.state.user && path !== 'login') {
+    // Redirect to login if not authenticated (邀请落地页对未登录开放)
+    if (!this.state.user && path !== 'login' && path !== 'invite') {
       window.location.hash = '#/login';
       return;
     }
@@ -57,6 +57,14 @@ window.app = {
       this._currentPage = window.loginPage;
       appEl.innerHTML = window.loginPage.render();
       window.loginPage.init();
+    } else if (path === 'invite' && param) {
+      this._currentPage = window.invitePage;
+      appEl.innerHTML = window.invitePage.render(param);
+      window.invitePage.init(param);
+    } else if (path === 'invites') {
+      this._currentPage = window.invitesPage;
+      appEl.innerHTML = window.invitesPage.render();
+      window.invitesPage.init();
     } else if (path === 'lobby') {
       this._currentPage = window.lobbyPage;
       window.lobbyPage.render().then((html) => {

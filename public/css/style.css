@@ -860,3 +860,94 @@ input[type='password']:disabled {
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
+
+/* ---------------------------------------------------------------------------
+ * Invite pages (#/invite/:token landing & #/invites management)
+ * ------------------------------------------------------------------------- */
+.auth-form-title {
+  text-align: center;
+  font-size: 1.05rem;
+  margin: 12px 0 16px;
+  color: var(--text-primary, #222);
+}
+
+.invite-hint {
+  text-align: center;
+  color: var(--text-secondary, #666);
+  font-size: 0.9rem;
+  margin-bottom: 16px;
+}
+
+.invites-page .invite-form {
+  padding: 20px;
+}
+
+.invite-created {
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: rgba(0, 120, 255, 0.06);
+  border: 1px solid rgba(0, 120, 255, 0.25);
+  border-radius: 6px;
+}
+
+.invite-created-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.invite-created-label {
+  font-size: 0.85rem;
+  color: var(--text-secondary, #666);
+}
+
+.invite-created-url {
+  flex: 1 1 280px;
+  min-width: 200px;
+  padding: 6px 8px;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  background: #fff;
+}
+
+.invite-list {
+  margin-top: 8px;
+}
+
+.invite-table th,
+.invite-table td {
+  white-space: nowrap;
+}
+
+.invite-status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+.invite-status.status-pending {
+  background: rgba(0, 160, 80, 0.12);
+  color: #066b3a;
+}
+.invite-status.status-expired {
+  background: rgba(120, 120, 120, 0.18);
+  color: #555;
+}
+
+.invite-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 36px;
+  transform: translateX(-50%);
+  background: rgba(20, 20, 20, 0.86);
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 18px;
+  font-size: 0.85rem;
+  z-index: 9999;
+  pointer-events: none;
+}
