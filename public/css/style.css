@@ -1,0 +1,780 @@
+/* =========================================================================
+   Voice Chat – Dark Theme
+   ========================================================================= */
+
+/* --- Reset & Base ------------------------------------------------------- */
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg-primary: #1a1a2e;
+  --bg-secondary: #16213e;
+  --bg-card: #1f2940;
+  --bg-input: #25334d;
+  --bg-hover: #2a3a5c;
+  --text-primary: #e8e8f0;
+  --text-secondary: #98a0b8;
+  --text-muted: #6a7290;
+  --accent: #4f8cff;
+  --accent-hover: #3d6fdb;
+  --accent-dim: rgba(79, 140, 255, 0.15);
+  --danger: #e74c3c;
+  --danger-hover: #c0392b;
+  --success: #2ecc71;
+  --border: #2a3a5c;
+  --shadow: rgba(0, 0, 0, 0.35);
+  --radius: 8px;
+  --radius-sm: 5px;
+  --transition: 0.2s ease;
+}
+
+html,
+body {
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+    Ubuntu, Cantarell, 'Helvetica Neue', sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+/* --- Links ------------------------------------------------------------- */
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+/* --- Buttons ----------------------------------------------------------- */
+button {
+  font-family: inherit;
+  font-size: 0.95rem;
+  cursor: pointer;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 8px 18px;
+  transition: background var(--transition), opacity var(--transition);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn-secondary {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.btn-secondary:hover:not(:disabled) {
+  background: var(--bg-input);
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+}
+.btn-danger:hover:not(:disabled) {
+  background: var(--danger-hover);
+}
+
+.btn-sm {
+  padding: 5px 12px;
+  font-size: 0.85rem;
+}
+
+.btn-full {
+  width: 100%;
+}
+
+.btn-mute {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  font-size: 1rem;
+  padding: 10px 24px;
+  border-radius: var(--radius);
+  min-width: 120px;
+}
+.btn-mute:hover:not(:disabled) {
+  background: var(--bg-input);
+}
+.btn-mute.muted {
+  background: rgba(231, 76, 60, 0.25);
+  color: var(--danger);
+}
+
+/* --- Form elements ----------------------------------------------------- */
+.form-group {
+  margin-bottom: 14px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 5px;
+}
+
+input[type='text'],
+input[type='password'],
+.input-full {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+input[type='text']:focus,
+input[type='password']:focus,
+.input-full:focus {
+  border-color: var(--accent);
+}
+
+::placeholder {
+  color: var(--text-muted);
+}
+
+select {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+}
+
+select:focus {
+  border-color: var(--accent);
+}
+
+/* --- Utility ----------------------------------------------------------- */
+.hidden {
+  display: none !important;
+}
+
+.loading {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 40px 0;
+}
+
+.error-msg {
+  background: rgba(231, 76, 60, 0.15);
+  color: var(--danger);
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 14px;
+  font-size: 0.9rem;
+}
+
+.empty-state {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 50px 0;
+  font-size: 1rem;
+}
+
+/* =========================================================================
+   AUTH PAGE  (#/login)
+   ========================================================================= */
+.auth-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 20px;
+}
+
+.auth-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 36px 32px 28px;
+  width: 100%;
+  max-width: 380px;
+  box-shadow: 0 8px 32px var(--shadow);
+}
+
+.auth-card h1 {
+  text-align: center;
+  font-size: 1.6rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.auth-subtitle {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin-bottom: 20px;
+}
+
+.tab-bar {
+  display: flex;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  flex: 1;
+  padding: 10px 0;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  font-size: 0.95rem;
+  transition: color var(--transition), border-color var(--transition);
+}
+
+.tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tab:hover:not(.active) {
+  color: var(--text-secondary);
+}
+
+/* =========================================================================
+   LOBBY PAGE  (#/lobby)
+   ========================================================================= */
+.lobby-container {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 16px 40px;
+}
+
+.lobby-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.lobby-header-left h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.lobby-actions {
+  margin-bottom: 20px;
+}
+
+/* --- Room cards -------------------------------------------------------- */
+.room-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.room-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  transition: border-color var(--transition), background var(--transition);
+}
+
+.room-card:hover {
+  border-color: var(--accent);
+  background: rgba(79, 140, 255, 0.04);
+}
+
+.room-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.room-info h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.room-owner {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.room-meta {
+  flex-shrink: 0;
+}
+
+.participant-count {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.room-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.btn-join {
+  background: var(--success);
+  color: #fff;
+  padding: 6px 16px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+}
+.btn-join:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.btn-delete {
+  background: transparent;
+  color: var(--danger);
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  border: 1px solid rgba(231, 76, 60, 0.3);
+  border-radius: var(--radius-sm);
+}
+.btn-delete:hover:not(:disabled) {
+  background: rgba(231, 76, 60, 0.15);
+}
+
+/* --- Modal ------------------------------------------------------------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 20px;
+}
+
+.modal-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 28px 24px 24px;
+  width: 100%;
+  max-width: 360px;
+  box-shadow: 0 8px 32px var(--shadow);
+}
+
+.modal-card h2 {
+  font-size: 1.2rem;
+  margin-bottom: 16px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+/* =========================================================================
+   ROOM PAGE  (#/room/:id)
+   ========================================================================= */
+.room-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.room-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+
+.room-header h2 {
+  flex: 1;
+  font-size: 1.15rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.room-error {
+  background: rgba(231, 76, 60, 0.15);
+  color: var(--danger);
+  text-align: center;
+  padding: 10px;
+  font-size: 0.9rem;
+}
+
+.room-content {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 0;
+  overflow: hidden;
+}
+
+/* --- Participants panel ------------------------------------------------ */
+.participants-panel {
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.participants-panel h3 {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+.participant-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.participant-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  transition: background var(--transition);
+}
+
+.participant-item:hover {
+  background: var(--bg-hover);
+}
+
+.participant-item.self {
+  background: var(--accent-dim);
+}
+
+.participant-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mute-icon {
+  flex-shrink: 0;
+  margin-left: 8px;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+/* --- Controls panel ---------------------------------------------------- */
+.controls-panel {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  overflow-y: auto;
+}
+
+.audio-controls {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.device-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 320px;
+}
+
+.device-controls .form-group {
+  margin-bottom: 0;
+}
+
+/* --- Audio level meter ------------------------------------------------- */
+.audio-level {
+  max-width: 320px;
+}
+
+.audio-level label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.level-bar-container {
+  height: 8px;
+  background: var(--bg-input);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.level-bar {
+  width: 0%;
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--success), #f1c40f, var(--danger));
+  transition: width 0.08s linear;
+}
+
+/* =========================================================================
+   Responsive
+   ========================================================================= */
+@media (max-width: 640px) {
+  .room-content {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+
+  .participants-panel {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    max-height: 180px;
+  }
+
+  .room-header {
+    flex-wrap: wrap;
+    padding: 10px 14px;
+  }
+
+  .room-header h2 {
+    order: -1;
+    width: 100%;
+    margin-bottom: 4px;
+  }
+
+  .lobby-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .room-card {
+    flex-wrap: wrap;
+  }
+
+  .room-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .auth-card {
+    padding: 24px 20px 20px;
+  }
+}
+
+/* ---- User management table ---- */
+.user-list-container {
+  max-height: 400px;
+  overflow-y: auto;
+  margin: 16px 0;
+}
+
+.user-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.user-table th,
+.user-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.user-table th {
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+}
+
+.user-table tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.tr-superadmin {
+  background: rgba(255, 215, 0, 0.06);
+}
+
+.role-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.role-superadmin {
+  background: rgba(255, 215, 0, 0.15);
+  color: #ffd700;
+}
+
+.role-admin {
+  background: rgba(88, 101, 242, 0.15);
+  color: #5865f2;
+}
+
+.role-user {
+  background: rgba(128, 132, 142, 0.15);
+  color: #b5bac1;
+}
+
+.text-muted {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.modal-card-wide {
+  min-width: 480px;
+  max-width: 600px;
+}
+
+@media (max-width: 640px) {
+  .modal-card-wide {
+    min-width: unset;
+    width: 90%;
+  }
+}
+
+/* =========================================================================
+   Success message
+   ========================================================================= */
+.success-msg {
+  background: rgba(46, 204, 113, 0.15);
+  color: var(--success);
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 14px;
+  font-size: 0.9rem;
+}
+
+/* =========================================================================
+   Context Menu (right-click)
+   ========================================================================= */
+.context-menu {
+  position: fixed;
+  list-style: none;
+  background: #ffffff;
+  color: #1a1a2e;
+  border: 1px solid #c5c8d3;
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  padding: 4px 0;
+  min-width: 140px;
+  z-index: 9999;
+  font-size: 0.9rem;
+  user-select: none;
+}
+
+.context-menu li {
+  padding: 8px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.context-menu li:hover {
+  background: #eef2ff;
+}
+
+.context-menu li.danger {
+  color: #c0392b;
+}
+
+.context-menu li.danger:hover {
+  background: rgba(231, 76, 60, 0.12);
+}
+
+/* =========================================================================
+   Media Error Banner (microphone permission / device errors)
+   ========================================================================= */
+.media-error-banner {
+  background: rgba(231, 76, 60, 0.18);
+  border-bottom: 1px solid rgba(231, 76, 60, 0.4);
+  color: var(--text-primary);
+  padding: 12px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.media-error-banner.hidden {
+  display: none !important;
+}
+
+.media-error-title {
+  font-weight: 600;
+  color: var(--danger);
+  font-size: 0.95rem;
+}
+
+.media-error-detail {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.media-error-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+input[type='text']:disabled,
+input[type='password']:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
