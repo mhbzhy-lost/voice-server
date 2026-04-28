@@ -12,3 +12,5 @@ voice.db-wal
 .DS_Store
 .env
 .env.*
+scripts/
+tls/
