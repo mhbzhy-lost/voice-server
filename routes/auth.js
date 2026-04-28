@@ -8,7 +8,7 @@ const router = Router();
 // POST /api/auth/register
 router.post('/register', (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, password, inviteToken } = req.body;
 
     // Validate username
     if (!username || typeof username !== 'string') {
@@ -26,6 +26,21 @@ router.post('/register', (req, res) => {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
+    // Validate invite token
+    if (!inviteToken || typeof inviteToken !== 'string') {
+      return res.status(400).json({ error: '无效的邀请码' });
+    }
+    const invite = db.prepare(
+      'SELECT id, token, expires_at FROM invites WHERE token = ?'
+    ).get(inviteToken);
+    if (!invite) {
+      return res.status(400).json({ error: '邀请码不存在' });
+    }
+    const nowRow = db.prepare("SELECT datetime('now') as now").get();
+    if (invite.expires_at <= nowRow.now) {
+      return res.status(400).json({ error: '邀请码已过期' });
+    }
+
     // Check if username already taken, or reserved
     if (username.toLowerCase() === 'superadmin') {
       return res.status(400).json({ error: 'This username is reserved' });
@@ -39,11 +54,17 @@ router.post('/register', (req, res) => {
     const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
     const role = userCount.count === 0 ? 'admin' : 'user';
 
-    // Hash password and create user
+    // Hash password and create user; record invite use atomically.
     const hashedPassword = bcrypt.hashSync(password, 10);
-    const result = db.prepare('INSERT INTO users (username, password, role, nickname) VALUES (?, ?, ?, ?)').run(username, hashedPassword, role, username);
+    const insertUser = db.prepare('INSERT INTO users (username, password, role, nickname) VALUES (?, ?, ?, ?)');
+    const recordUse = db.prepare('INSERT INTO invite_uses (invite_id, user_id) VALUES (?, ?)');
+    const tx = db.transaction((u, h, r, n, inviteId) => {
+      const ins = insertUser.run(u, h, r, n);
+      recordUse.run(inviteId, ins.lastInsertRowid);
+      return ins.lastInsertRowid;
+    });
 
-    const userId = result.lastInsertRowid;
+    const userId = tx(username, hashedPassword, role, username, invite.id);
     const nickname = username;
 
     // Generate token

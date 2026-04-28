@@ -24,6 +24,28 @@ db.exec(`
     owner_id INTEGER NOT NULL REFERENCES users(id),
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS invites (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token TEXT UNIQUE NOT NULL,
+    created_by INTEGER NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    used_by_user_id INTEGER REFERENCES users(id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_invites_token ON invites(token);
+`);
+
+// Idempotent migration: add invite_uses audit table
+db.exec(`
+  CREATE TABLE IF NOT EXISTS invite_uses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    invite_id INTEGER NOT NULL REFERENCES invites(id),
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    used_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_invite_uses_invite ON invite_uses(invite_id);
 `);
 
 // Idempotent migration: add nickname column if missing

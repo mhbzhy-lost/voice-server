@@ -10,6 +10,7 @@ const auth = require('./auth');
 const authRoutes = require('./routes/auth');
 const roomRoutes = require('./routes/rooms');
 const userRoutes = require('./routes/users');
+const invitesRoutes = require('./routes/invites');
 const { initSignaling, connections, rooms } = require('./ws/signaling');
 const startStunServer = require('./stun/server');
 
@@ -24,6 +25,7 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/invites', invitesRoutes);
 
 // Inject connection tracking into room routes for participant counting
 roomRoutes.setRoomConnections(connections, rooms);
