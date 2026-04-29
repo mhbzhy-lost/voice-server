@@ -13,6 +13,11 @@ const userRoutes = require('./routes/users');
 const invitesRoutes = require('./routes/invites');
 const { initSignaling, connections, rooms } = require('./ws/signaling');
 const startStunServer = require('./stun/server');
+const {
+  authLimiter,
+  inviteCheckLimiter,
+  apiGeneralLimiter,
+} = require('./middleware/rate-limit');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -20,6 +25,15 @@ const STUN_PORT = process.env.STUN_PORT || 3478;
 
 // Parse JSON bodies
 app.use(express.json());
+
+// Rate limiting: global /api/* fallback (must precede concrete routers).
+app.use('/api/', apiGeneralLimiter);
+
+// Targeted limiters for sensitive endpoints (mounted before their routers so
+// they short-circuit before hitting auth handlers).
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', authLimiter);
+app.use('/api/invites/check/:token', inviteCheckLimiter);
 
 // Mount routes
 app.use('/api/auth', authRoutes);
