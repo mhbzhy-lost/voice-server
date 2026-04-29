@@ -20,10 +20,13 @@ const commonOptions = {
 };
 
 // Auth endpoints (login/register): brute-force resistant.
+// Only failed responses (>=400) count toward the limit, so a legitimate user
+// who logs in/out many times in a session won't get locked out.
 const authLimiter = rateLimit({
   ...commonOptions,
   windowMs: 15 * 60 * 1000,
   max: 10,
+  skipSuccessfulRequests: true,
 });
 
 // Invite token check: prevent enumeration of invite tokens.
