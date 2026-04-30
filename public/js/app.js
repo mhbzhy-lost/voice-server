@@ -93,6 +93,9 @@ window.app = {
     api.token = token;
     localStorage.setItem('voice_token', token);
 
+    // 登录后拉偏好覆盖 localStorage（失败不阻塞登录）
+    await window.prefs.hydrate().catch(() => {});
+
     // Establish WebSocket connection
     try {
       await connectWS(token);

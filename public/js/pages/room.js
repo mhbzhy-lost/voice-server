@@ -403,7 +403,7 @@ window.roomPage = {
     const prefs = this._getAudioProcessingPrefs();
     prefs[key] = !!value;
     try {
-      localStorage.setItem('voice_audio_prefs', JSON.stringify(prefs));
+      window.prefs.set('voice_audio_prefs', prefs);
     } catch {
       // ignore storage errors
     }
@@ -454,7 +454,7 @@ window.roomPage = {
     if (this.inputGainNode) {
       this.inputGainNode.gain.value = v;
     }
-    try { localStorage.setItem('voice_input_volume', String(v)); } catch {}
+    window.prefs.set('voice_input_volume', String(v));
   },
 
   _getOutputVolume() {
@@ -466,7 +466,7 @@ window.roomPage = {
 
   _setOutputVolume(value) {
     const v = this._clamp(value, 0, 1);
-    try { localStorage.setItem('voice_output_volume', String(v)); } catch {}
+    window.prefs.set('voice_output_volume', String(v));
     this.remoteAudioElements.forEach((el, uid) => {
       const per = this._getPeerVolume(uid);
       el.volume = this._clamp(v * per, 0, 1);
@@ -494,7 +494,7 @@ window.roomPage = {
     const v = this._clamp(value, 0, 1);
     const map = this._readPeerVolumes();
     map[String(userId)] = v;
-    try { localStorage.setItem('voice_peer_volumes', JSON.stringify(map)); } catch {}
+    window.prefs.set('voice_peer_volumes', map);
     const el = this.remoteAudioElements.get(Number(userId)) || this.remoteAudioElements.get(userId);
     if (el) {
       const master = this._getOutputVolume();
