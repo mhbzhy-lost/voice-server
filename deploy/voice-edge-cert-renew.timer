@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly check for voice-server edge cert renewal
+
+[Timer]
+OnCalendar=Sun *-*-* 03:30:00
+Persistent=true
+RandomizedDelaySec=30m
+Unit=voice-edge-cert-renew.service
+
+[Install]
+WantedBy=timers.target

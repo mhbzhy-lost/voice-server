@@ -1,0 +1,24 @@
+[Unit]
+Description=Voice Server Edge - STUN only
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__VOICE_EDGE_SSH_USER__
+Group=__VOICE_EDGE_SSH_USER__
+WorkingDirectory=/opt/voice-edge
+Environment=STUN_PORT=3478
+ExecStart=/usr/bin/node /opt/voice-edge/stun/standalone.js
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+PrivateTmp=true
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
