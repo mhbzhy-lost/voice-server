@@ -55,6 +55,17 @@ if (!userColumns.includes('nickname')) {
   db.exec("UPDATE users SET nickname = username WHERE nickname IS NULL");
 }
 
+// Idempotent migration: per-user preferences KV store
+db.exec(`
+  CREATE TABLE IF NOT EXISTS user_preferences (
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, key)
+  );
+`);
+
 // Seed superadmin account if not exists
 const saPassword = process.env.SUPERADMIN_PASSWORD || 'superadmin123';
 const saHash = bcrypt.hashSync(saPassword, 10);

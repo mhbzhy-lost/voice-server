@@ -52,6 +52,66 @@ router.patch('/me', requireAuth, (req, res) => {
   }
 });
 
+// --- User preferences (KV) ---
+const PREF_KEY_WHITELIST = new Set([
+  'voice_input_volume',
+  'voice_output_volume',
+  'voice_peer_volumes',
+  'voice_audio_prefs',
+]);
+const PREF_VALUE_MAX_LEN = 4096;
+
+// GET /api/users/me/preferences — fetch all preferences for current user
+router.get('/me/preferences', requireAuth, (req, res) => {
+  try {
+    const rows = db.prepare(
+      'SELECT key, value FROM user_preferences WHERE user_id = ?'
+    ).all(req.user.id);
+    const preferences = {};
+    for (const row of rows) {
+      preferences[row.key] = row.value;
+    }
+    res.json({ preferences });
+  } catch (err) {
+    console.error('Get preferences error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/users/me/preferences/:key — upsert a single preference
+router.put('/me/preferences/:key', requireAuth, (req, res) => {
+  try {
+    const key = req.params.key;
+    if (!PREF_KEY_WHITELIST.has(key)) {
+      return res.status(400).json({ error: '不支持的偏好键' });
+    }
+    const value = req.body && req.body.value;
+    if (typeof value !== 'string') {
+      return res.status(400).json({ error: 'value 必须为字符串' });
+    }
+    if (value.length > PREF_VALUE_MAX_LEN) {
+      return res.status(400).json({ error: 'value 长度超过限制' });
+    }
+
+    const info = db.prepare(
+      `INSERT INTO user_preferences (user_id, key, value, updated_at)
+       VALUES (?, ?, ?, datetime('now'))
+       ON CONFLICT(user_id, key) DO UPDATE SET
+         value = excluded.value,
+         updated_at = datetime('now')`
+    ).run(req.user.id, key, value);
+
+    const row = db.prepare(
+      'SELECT updated_at FROM user_preferences WHERE user_id = ? AND key = ?'
+    ).get(req.user.id, key);
+
+    res.json({ ok: true, updated_at: row ? row.updated_at : null });
+  } catch (err) {
+    console.error('Put preference error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // All routes below require superadmin
 router.use(requireSuperAdmin);
 
